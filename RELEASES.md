@@ -1,6 +1,27 @@
 # LTDHelper Releases
 
-## v2 (Actual)
+## v3 (Actual)
+**Release Date**: March 28, 2026
+
+### Features
+- ✅ Marketplace parser updated (no strict status filter)
+- ✅ Better diagnostics when offer parsing fails (`/debug on`)
+- ✅ Keeps best valid offer by `offerId` + `price <= max`
+- ✅ Build artifact cleanup policy (`.gitignore`)
+
+### Testing Focus
+1. Enable `/debug on`
+2. Start flow with `/iniciar`
+3. Verify: with max price `10`, an offer at `9` is detected and attempted
+4. If parsing fails, check debug chat for `Parse offers failed`
+
+### Notes
+- Legacy release ZIP artifacts were removed from repository tracking.
+- Recommended distribution remains via release assets, not repository binaries.
+
+---
+
+## v2
 **Release Date**: March 28, 2026
 
 ### Features
