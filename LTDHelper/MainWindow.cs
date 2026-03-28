@@ -34,6 +34,7 @@ public partial class MainWindow : Window, IComponentConnector
 	private int TotalBought = 0;
 	private bool DebugEnabled = true;
 	private int _noOfferScanCount = 0;
+	private int _parseErrorCount = 0;
 	private CancellationTokenSource _cts;
 
 	public virtual GeodeExtension Extension
@@ -132,6 +133,7 @@ public partial class MainWindow : Window, IComponentConnector
 		_cts?.Cancel();
 		_cts = null;
 		_noOfferScanCount = 0;
+		_parseErrorCount = 0;
 		State = BotState.Idle;
 	}
 
@@ -272,22 +274,28 @@ public partial class MainWindow : Window, IComponentConnector
 				packet.ReadInteger(); // stuffData
 				packet.ReadInteger(); // extraInt
 				packet.ReadString();  // extraData
-				int status = packet.ReadInteger();
+				packet.ReadInteger(); // status
 				packet.ReadInteger(); // avgPrice
 				packet.ReadInteger(); // offerCount
 				packet.ReadInteger(); // timeLeftMinutes
 				int price = packet.ReadInteger();
 				packet.ReadInteger(); // unknown
-				if (status == 1 && price <= MaxPrice && price < bestPrice)
+
+				// Some servers report different status codes; prioritize valid price + offer id.
+				if (offerId > 0 && price > 0 && price <= MaxPrice && price < bestPrice)
 				{
 					bestPrice = price;
 					bestOfferId = offerId;
 				}
 			}
 		}
-		catch
+		catch (Exception ex)
 		{
-			// Parsing error — packet structure may differ; check PACKET NOTE above.
+			_parseErrorCount++;
+			if (DebugEnabled && _parseErrorCount % 5 == 0)
+			{
+				ConsoleBot.BotSendMessage(string.Format(AppTranslator.DebugError[CurrentLanguageInt], "Parse offers failed: " + ex.Message));
+			}
 		}
 		return (bestOfferId, bestPrice == int.MaxValue ? 0 : bestPrice);
 	}
