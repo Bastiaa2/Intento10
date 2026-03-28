@@ -35,6 +35,7 @@
 
 ### Download
 - `LTDHelper-win-x86-v2.zip` - 32-bit executable
+- `LTDHelper-win-x64-v2.zip` - 64-bit executable (pending)
 
 ### Key Changes from v1
 1. **Fallback Logic**: TryBuyOfferAsync() attempts 2 packet formats
