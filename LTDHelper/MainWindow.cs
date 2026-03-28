@@ -90,15 +90,24 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private void MainWindow_Loaded(object sender, RoutedEventArgs e)
 	{
-		base.Visibility = Visibility.Hidden;
-		string culture = CultureInfo.CurrentCulture.Name.ToLower();
-		if (culture.StartsWith("es")) CurrentLanguageInt = 1;
-		else if (culture.StartsWith("pt")) CurrentLanguageInt = 2;
-		else CurrentLanguageInt = 0;
-		Extension = new GeodeExtension("LTDHelper", "Marketplace auto-buyer.", "Lilith");
-		Extension.Start();
-		ConsoleBot = new ConsoleBot(Extension, "LTDHelper");
-		ConsoleBot.ShowBot();
+		try
+		{
+			base.Visibility = Visibility.Hidden;
+			string culture = CultureInfo.CurrentCulture.Name.ToLower();
+			if (culture.StartsWith("es")) CurrentLanguageInt = 1;
+			else if (culture.StartsWith("pt")) CurrentLanguageInt = 2;
+			else CurrentLanguageInt = 0;
+			Extension = new GeodeExtension("LTDHelper", "Marketplace auto-buyer.", "Lilith");
+			Extension.Start();
+			ConsoleBot = new ConsoleBot(Extension, "LTDHelper");
+			ConsoleBot.ShowBot();
+		}
+		catch (Exception ex)
+		{
+			base.Visibility = Visibility.Visible;
+			base.ShowInTaskbar = true;
+			MessageBox.Show("Startup error:\n" + ex, "LTDHelper", MessageBoxButton.OK, MessageBoxImage.Error);
+		}
 	}
 
 	public void BotWelcome()
