@@ -1,10 +1,11 @@
 #!/bin/bash
 cd /workspaces/Intento10
 
-# Rename zip to v2
-if [ -f "LTDHelper-win-x86-full.zip" ]; then
-    mv LTDHelper-win-x86-full.zip LTDHelper-win-x86-v2.zip
-    echo "✓ Renamed to LTDHelper-win-x86-v2.zip"
+# Create lightweight x86 zip from the published exe
+if [ -f "bin/Release/publish-win-x86/LTDHelper.exe" ]; then
+    rm -f LTDHelper-win-x86-v2.zip
+    zip -j LTDHelper-win-x86-v2.zip bin/Release/publish-win-x86/LTDHelper.exe >/dev/null
+    echo "✓ Created LTDHelper-win-x86-v2.zip"
 fi
 
 # Check if old x64 zip exists and version it
@@ -19,7 +20,7 @@ echo "Current release files:"
 ls -lh LTDHelper-win-x86-v2.zip LTDHelper-win-x64-v2.zip 2>/dev/null || ls -lh LTDHelper-win-x86-v2.zip
 
 # Add to git
-git add LTDHelper-win-x86-v2.zip LTDHelper-win-x64-v2.zip LTDHelper/MainWindow.cs LTDHelper/AppTranslator.cs
+git add .gitignore LTDHelper1.csproj .vscode/tasks.json deploy-v2.sh version-release.sh LTDHelper-win-x86-v2.zip LTDHelper-win-x64-v2.zip LTDHelper/MainWindow.cs LTDHelper/AppTranslator.cs RELEASES.md
 
 # Show status
 echo ""

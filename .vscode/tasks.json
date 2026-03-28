@@ -24,7 +24,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "cd bin/Release && zip -r ../../LTDHelper-win-x86-full.zip publish-win-x86/ && ls -lh ../../LTDHelper-win-x86-full.zip"
+        "cd bin/Release && zip -j ../../LTDHelper-win-x86-v2.zip publish-win-x86/LTDHelper.exe && ls -lh ../../LTDHelper-win-x86-v2.zip"
       ],
       "dependsOn": ["Publish Win x86"],
       "problemMatcher": []
