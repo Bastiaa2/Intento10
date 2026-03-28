@@ -1,13 +1,13 @@
 using System;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Markup;
 using Geode.Extension;
 using Geode.Habbo.Packages;
 using Geode.Network;
-using Microsoft.VisualBasic;
 using Microsoft.VisualBasic.CompilerServices;
 
 namespace LTDHelper;
@@ -15,6 +15,8 @@ namespace LTDHelper;
 [DesignerGenerated]
 public partial class MainWindow : Window, IComponentConnector
 {
+	private enum BotState { Idle, WaitingForFurniName, WaitingForMaxPrice, WaitingForAmount, Running }
+
 	public int CurrentLanguageInt;
 
 	[CompilerGenerated]
@@ -25,47 +27,33 @@ public partial class MainWindow : Window, IComponentConnector
 	[AccessedThroughProperty("ConsoleBot")]
 	private ConsoleBot _ConsoleBot;
 
-	public bool TaskStarted;
-
-	public bool TaskBlocked;
-
-	public bool TestMode;
-
-	public string[] CatalogCategory;
-
-	public bool TaskCanBeStopped;
-
-	public bool WaitingForAmount;
-
-	public int PurchaseAmount;
-
-	public bool PendingImmediateBuy;
+	private BotState State = BotState.Idle;
+	private string SearchFurniName = string.Empty;
+	private int MaxPrice = 0;
+	private int TargetAmount = 0; // 0 = unlimited
+	private int TotalBought = 0;
+	private CancellationTokenSource _cts;
 
 	public virtual GeodeExtension Extension
 	{
 		[CompilerGenerated]
-		get
-		{
-			return _Extension;
-		}
+		get => _Extension;
 		[MethodImpl(MethodImplOptions.Synchronized)]
 		[CompilerGenerated]
 		set
 		{
-			Action<DataInterceptedEventArgs> value2 = Extension_OnDataInterceptEvent;
-			Action<string> value3 = Extension_OnCriticalErrorEvent;
-			GeodeExtension geodeExtension = _Extension;
-			if (geodeExtension != null)
+			Action<DataInterceptedEventArgs> intercept = Extension_OnDataInterceptEvent;
+			Action<string> critErr = Extension_OnCriticalErrorEvent;
+			if (_Extension != null)
 			{
-				geodeExtension.OnDataInterceptEvent -= value2;
-				geodeExtension.OnCriticalErrorEvent -= value3;
+				_Extension.OnDataInterceptEvent -= intercept;
+				_Extension.OnCriticalErrorEvent -= critErr;
 			}
 			_Extension = value;
-			geodeExtension = _Extension;
-			if (geodeExtension != null)
+			if (_Extension != null)
 			{
-				geodeExtension.OnDataInterceptEvent += value2;
-				geodeExtension.OnCriticalErrorEvent += value3;
+				_Extension.OnDataInterceptEvent += intercept;
+				_Extension.OnCriticalErrorEvent += critErr;
 			}
 		}
 	}
@@ -73,28 +61,23 @@ public partial class MainWindow : Window, IComponentConnector
 	public virtual ConsoleBot ConsoleBot
 	{
 		[CompilerGenerated]
-		get
-		{
-			return _ConsoleBot;
-		}
+		get => _ConsoleBot;
 		[MethodImpl(MethodImplOptions.Synchronized)]
 		[CompilerGenerated]
 		set
 		{
-			Action<string> value2 = ConsoleBot_OnBotLoaded;
-			Action<string> value3 = ConsoleBot_OnMessageReceived;
-			ConsoleBot consoleBot = _ConsoleBot;
-			if (consoleBot != null)
+			Action<string> botLoaded = ConsoleBot_OnBotLoaded;
+			Action<string> msgReceived = ConsoleBot_OnMessageReceived;
+			if (_ConsoleBot != null)
 			{
-				consoleBot.OnBotLoaded -= value2;
-				consoleBot.OnMessageReceived -= value3;
+				_ConsoleBot.OnBotLoaded -= botLoaded;
+				_ConsoleBot.OnMessageReceived -= msgReceived;
 			}
 			_ConsoleBot = value;
-			consoleBot = _ConsoleBot;
-			if (consoleBot != null)
+			if (_ConsoleBot != null)
 			{
-				consoleBot.OnBotLoaded += value2;
-				consoleBot.OnMessageReceived += value3;
+				_ConsoleBot.OnBotLoaded += botLoaded;
+				_ConsoleBot.OnMessageReceived += msgReceived;
 			}
 		}
 	}
@@ -102,30 +85,17 @@ public partial class MainWindow : Window, IComponentConnector
 	public MainWindow()
 	{
 		base.Loaded += MainWindow_Loaded;
-		CurrentLanguageInt = 0;
-		TaskStarted = false;
-		TaskBlocked = false;
-		TestMode = false;
-		CatalogCategory = new string[2] { "ler", "set_mode" };
-		TaskCanBeStopped = true;
-		WaitingForAmount = false;
-		PurchaseAmount = 1;
-		PendingImmediateBuy = false;
 		InitializeComponent();
 	}
 
 	private void MainWindow_Loaded(object sender, RoutedEventArgs e)
 	{
 		base.Visibility = Visibility.Hidden;
-		if (CultureInfo.CurrentCulture.Name.ToLower().StartsWith("es"))
-		{
-			CurrentLanguageInt = 1;
-		}
-		if (CultureInfo.CurrentCulture.Name.ToLower().StartsWith("pt"))
-		{
-			CurrentLanguageInt = 2;
-		}
-		Extension = new GeodeExtension("LTDHelper", "Geode examples.", "Lilith");
+		string culture = CultureInfo.CurrentCulture.Name.ToLower();
+		if (culture.StartsWith("es")) CurrentLanguageInt = 1;
+		else if (culture.StartsWith("pt")) CurrentLanguageInt = 2;
+		else CurrentLanguageInt = 0;
+		Extension = new GeodeExtension("LTDHelper", "Marketplace auto-buyer.", "Lilith");
 		Extension.Start();
 		ConsoleBot = new ConsoleBot(Extension, "LTDHelper");
 		ConsoleBot.ShowBot();
@@ -134,70 +104,134 @@ public partial class MainWindow : Window, IComponentConnector
 	public void BotWelcome()
 	{
 		ConsoleBot.BotSendMessage(AppTranslator.WelcomeMessage[CurrentLanguageInt]);
-		ConsoleBot.BotSendMessage(AppTranslator.BuyAdvice[CurrentLanguageInt]);
-		ConsoleBot.BotSendMessage(AppTranslator.RiskAdvice[CurrentLanguageInt]);
-		ConsoleBot.BotSendMessage(AppTranslator.FullCommandsList[CurrentLanguageInt]);
+		ConsoleBot.BotSendMessage(AppTranslator.CommandsMessage[CurrentLanguageInt]);
 	}
 
-	public async Task TryToBuyLTD()
+	// ── Search loop ────────────────────────────────────────────────────────
+
+	private void StartSearchLoop()
 	{
-		TaskCanBeStopped = false;
-		if (TaskStarted)
+		_cts = new CancellationTokenSource();
+		State = BotState.Running;
+		_ = SearchLoop(_cts.Token);
+	}
+
+	private void StopSearchLoop()
+	{
+		_cts?.Cancel();
+		_cts = null;
+		State = BotState.Idle;
+	}
+
+	private async Task SearchLoop(CancellationToken ct)
+	{
+		try
 		{
-			try
+			while (!ct.IsCancellationRequested)
 			{
-				await Task.Delay(new Random().Next(500, 1000));
-				Extension.SendToServerAsync(Extension.Out.GetCatalogIndex, "NORMAL");
-				DataInterceptedEventArgs dataInterceptedEventArgs = await Extension.WaitForPacketAsync(Extension.In.CatalogIndex, 4000);
-				ConsoleBot.BotSendMessage(AppTranslator.CatalogIndexLoaded[CurrentLanguageInt]);
-				HCatalogNode hCatalogNode = new HCatalogNode(dataInterceptedEventArgs.Packet);
-				HCatalogNode hCatalogNode2 = FindCatalogCategory(hCatalogNode.Children, CatalogCategory[Convert.ToInt32(TestMode)]);
-				await Task.Delay(new Random().Next(500, 1000));
-				ConsoleBot.BotSendMessage(AppTranslator.SimulatingPageClick[CurrentLanguageInt]);
-				Extension.SendToServerAsync(Extension.Out.GetCatalogPage, hCatalogNode2.PageId, -1, "NORMAL");
-				await Task.Delay(new Random().Next(500, 1000));
-				ConsoleBot.BotSendMessage(AppTranslator.TryingToBuy[CurrentLanguageInt]);
-				int purchaseAttempts = PurchaseAmount;
-				for (int i = 0; i < purchaseAttempts; i++)
+				if (TargetAmount > 0 && TotalBought >= TargetAmount)
 				{
-					Extension.SendToServerAsync(Extension.Out.PurchaseFromCatalog, hCatalogNode2.PageId, hCatalogNode2.OfferIds[0], "", 1);
-					if (await Extension.WaitForPacketAsync(Extension.In.PurchaseOK, 2000) == null)
-					{
-						throw new Exception("LTD not purchased!");
-					}
-					ConsoleBot.BotSendMessage(AppTranslator.PurchaseOK[CurrentLanguageInt]);
-					await Task.Delay(new Random().Next(300, 700));
+					ConsoleBot.BotSendMessage(AppTranslator.TargetReached[CurrentLanguageInt]);
+					StopSearchLoop();
+					return;
 				}
-				TaskStarted = false;
-				TaskBlocked = false;
-				ConsoleBot.BotSendMessage(AppTranslator.StoppedMessage[CurrentLanguageInt]);
-			}
-			catch (Exception projectError)
-			{
-				ProjectData.SetProjectError(projectError);
-				ConsoleBot.BotSendMessage(AppTranslator.PurchaseFailed[CurrentLanguageInt]);
-				ProjectData.ClearProjectError();
+				await SearchAndBuyAsync(ct);
+				try { await Task.Delay(new Random().Next(2000, 4000), ct); }
+				catch (OperationCanceledException) { return; }
 			}
 		}
-		TaskCanBeStopped = true;
+		catch (OperationCanceledException) { }
+		catch (Exception)
+		{
+			ConsoleBot.BotSendMessage(AppTranslator.UnexpectedError[CurrentLanguageInt]);
+			StopSearchLoop();
+		}
 	}
 
-	private HCatalogNode FindCatalogCategory(HCatalogNode[] NodeChildrens, string CategoryName)
+	private async Task SearchAndBuyAsync(CancellationToken ct)
 	{
-		foreach (HCatalogNode hCatalogNode in NodeChildrens)
+		try
 		{
-			if (Operators.CompareString(hCatalogNode.PageName, CategoryName, TextCompare: false) == 0)
+			// Packet validated from logs:
+			// {out:GetMarketplaceOffers}{i:-1}{i:-1}{s:"query"}{i:1}
+			Extension.SendToServerAsync(Extension.Out.GetMarketplaceOffers, -1, -1, SearchFurniName, 1);
+
+			DataInterceptedEventArgs result = await Extension.WaitForPacketAsync(Extension.In.MarketPlaceOffers, 5000);
+			if (result == null || ct.IsCancellationRequested) return;
+
+			(int bestOfferId, int bestPrice) = ParseBestOffer(result.Packet);
+			if (bestOfferId == -1) return; // no offers at or below max price
+
+			ConsoleBot.BotSendMessage(string.Format(AppTranslator.OfferFound[CurrentLanguageInt], bestPrice));
+
+			// Packet validated from logs:
+			// {out:BuyMarketplaceOffer}{i:offerId}
+			Extension.SendToServerAsync(Extension.Out.BuyMarketplaceOffer, bestOfferId);
+
+			DataInterceptedEventArgs buyResult = await Extension.WaitForPacketAsync(Extension.In.MarketplaceBuyOfferResult, 3000);
+			if (buyResult != null)
 			{
-				return hCatalogNode;
+				TotalBought++;
+				ConsoleBot.BotSendMessage(string.Format(AppTranslator.PurchaseOK[CurrentLanguageInt], bestPrice, TotalBought));
 			}
-			HCatalogNode hCatalogNode2 = FindCatalogCategory(hCatalogNode.Children, CategoryName);
-			if (hCatalogNode2 != null)
+			else
 			{
-				return hCatalogNode2;
+				ConsoleBot.BotSendMessage(AppTranslator.PurchaseFailed[CurrentLanguageInt]);
 			}
 		}
-		return null;
+		catch (OperationCanceledException)
+		{
+			throw;
+		}
+		catch (Exception)
+		{
+			// Silently swallow per-iteration errors; loop will retry.
+		}
 	}
+
+	// Parses {in:MarketPlaceOffers} and returns the cheapest offer <= MaxPrice.
+	// Observed format:
+	// {i:offersCount} then N offers with:
+	// {i:offerId}{i:furniId}{i:furniType}{i:spriteId}{i:stuffData}
+	// {i:extraInt}{s:extraData}{i:status}{i:avgPrice}{i:offerCount}
+	// {i:timeLeftMinutes}{i:price}{i:unknown}
+	private (int offerId, int price) ParseBestOffer(dynamic packet)
+	{
+		int bestOfferId = -1;
+		int bestPrice = int.MaxValue;
+		try
+		{
+			int offersCount = packet.ReadInteger();
+			for (int i = 0; i < offersCount; i++)
+			{
+				int offerId = packet.ReadInteger();
+				packet.ReadInteger(); // furniId
+				packet.ReadInteger(); // furniType
+				packet.ReadInteger(); // spriteId
+				packet.ReadInteger(); // stuffData
+				packet.ReadInteger(); // extraInt
+				packet.ReadString();  // extraData
+				int status = packet.ReadInteger();
+				packet.ReadInteger(); // avgPrice
+				packet.ReadInteger(); // offerCount
+				packet.ReadInteger(); // timeLeftMinutes
+				int price = packet.ReadInteger();
+				packet.ReadInteger(); // unknown
+				if (status == 1 && price <= MaxPrice && price < bestPrice)
+				{
+					bestPrice = price;
+					bestOfferId = offerId;
+				}
+			}
+		}
+		catch
+		{
+			// Parsing error — packet structure may differ; check PACKET NOTE above.
+		}
+		return (bestOfferId, bestPrice == int.MaxValue ? 0 : bestPrice);
+	}
+
+	// ── Command handling ───────────────────────────────────────────────────
 
 	private void ConsoleBot_OnBotLoaded(string e)
 	{
@@ -206,128 +240,114 @@ public partial class MainWindow : Window, IComponentConnector
 
 	private void ConsoleBot_OnMessageReceived(string e)
 	{
-		if (!TaskBlocked)
+		string input = e.Trim();
+		string lower = input.ToLower();
+
+		// Wizard input states
+		if (State == BotState.WaitingForFurniName)
 		{
-			if (WaitingForAmount)
+			if (string.IsNullOrWhiteSpace(input))
 			{
-				if (int.TryParse(e.Trim(), out int amount) && amount >= 1 && amount <= 10)
-				{
-					WaitingForAmount = false;
-					PurchaseAmount = amount;
-					ConsoleBot.BotSendMessage(AppTranslator.StartedMessage[CurrentLanguageInt]);
-					TaskStarted = true;
-					if (PendingImmediateBuy)
-					{
-						PendingImmediateBuy = false;
-						TryToBuyLTD();
-					}
-				}
-				else
-				{
-					ConsoleBot.BotSendMessage(AppTranslator.InvalidAmount[CurrentLanguageInt]);
-				}
+				ConsoleBot.BotSendMessage(AppTranslator.AskFurniName[CurrentLanguageInt]);
 				return;
 			}
-			switch (e.ToLower())
+			SearchFurniName = input;
+			State = BotState.WaitingForMaxPrice;
+			ConsoleBot.BotSendMessage(AppTranslator.AskMaxPrice[CurrentLanguageInt]);
+			return;
+		}
+
+		if (State == BotState.WaitingForMaxPrice)
+		{
+			if (int.TryParse(input, out int price) && price > 0)
 			{
-			case "/test":
-			case "/probar":
-			case "/testar":
-				if (!TaskStarted)
-				{
-					TestMode = true;
-					PendingImmediateBuy = true;
-					WaitingForAmount = true;
-					ConsoleBot.BotSendMessage(AppTranslator.AskAmount[CurrentLanguageInt]);
-				}
-				else
-				{
-					ConsoleBot.BotSendMessage(AppTranslator.ReducedCommandsList[CurrentLanguageInt]);
-				}
-				break;
-			case "/force":
-			case "/forzar":
-			case "/forçar":
-				if (!TaskBlocked & TaskCanBeStopped)
-				{
-					TestMode = false;
-					PendingImmediateBuy = true;
-					WaitingForAmount = true;
-					ConsoleBot.BotSendMessage(AppTranslator.AskAmount[CurrentLanguageInt]);
-				}
-				else
-				{
-					ConsoleBot.BotSendMessage(AppTranslator.ReducedCommandsList[CurrentLanguageInt]);
-				}
-				break;
-			case "/start":
+				MaxPrice = price;
+				State = BotState.WaitingForAmount;
+				ConsoleBot.BotSendMessage(AppTranslator.AskAmount[CurrentLanguageInt]);
+			}
+			else
+			{
+				ConsoleBot.BotSendMessage(AppTranslator.InvalidPrice[CurrentLanguageInt]);
+			}
+			return;
+		}
+
+		if (State == BotState.WaitingForAmount)
+		{
+			if (int.TryParse(input, out int amount) && amount >= 0 && amount <= 100)
+			{
+				TargetAmount = amount;
+				TotalBought = 0;
+				string target = TargetAmount == 0 ? "∞" : TargetAmount.ToString();
+				ConsoleBot.BotSendMessage(string.Format(AppTranslator.SearchStarted[CurrentLanguageInt], SearchFurniName, MaxPrice, target));
+				StartSearchLoop();
+			}
+			else
+			{
+				ConsoleBot.BotSendMessage(AppTranslator.InvalidAmount[CurrentLanguageInt]);
+			}
+			return;
+		}
+
+		// Commands
+		switch (lower)
+		{
 			case "/iniciar":
+			case "/start":
 			case "/começar":
-				if (!TaskStarted)
+				if (State == BotState.Idle)
 				{
-					TestMode = false;
-					PendingImmediateBuy = false;
-					WaitingForAmount = true;
-					ConsoleBot.BotSendMessage(AppTranslator.AskAmount[CurrentLanguageInt]);
+					State = BotState.WaitingForFurniName;
+					ConsoleBot.BotSendMessage(AppTranslator.AskFurniName[CurrentLanguageInt]);
 				}
 				else
 				{
-					ConsoleBot.BotSendMessage(AppTranslator.ReducedCommandsList[CurrentLanguageInt]);
+					ConsoleBot.BotSendMessage(AppTranslator.AlreadyRunning[CurrentLanguageInt]);
 				}
 				break;
-			case "/stop":
+
 			case "/detener":
+			case "/stop":
 			case "/parar":
-				if (TaskStarted)
+				if (State == BotState.Running)
 				{
-					if (TaskCanBeStopped)
-					{
-						ConsoleBot.BotSendMessage(AppTranslator.StoppedMessage[CurrentLanguageInt]);
-						TaskStarted = false;
-					}
-					else
-					{
-						ConsoleBot.BotSendMessage(AppTranslator.StopFailed[CurrentLanguageInt]);
-					}
+					StopSearchLoop();
+					ConsoleBot.BotSendMessage(AppTranslator.StoppedMessage[CurrentLanguageInt]);
 				}
 				else
 				{
-					ConsoleBot.BotSendMessage(AppTranslator.FullCommandsList[CurrentLanguageInt]);
+					ConsoleBot.BotSendMessage(AppTranslator.NotRunning[CurrentLanguageInt]);
 				}
 				break;
+
+			case "/estado":
+			case "/status":
+				if (State == BotState.Running)
+					ConsoleBot.BotSendMessage(string.Format(AppTranslator.StatusRunning[CurrentLanguageInt], SearchFurniName, MaxPrice, TotalBought));
+				else
+					ConsoleBot.BotSendMessage(AppTranslator.StatusIdle[CurrentLanguageInt]);
+				break;
+
 			case "/salir":
+			case "/exit":
 			case "/sair":
 				ConsoleBot.CustomExitCommand = e;
 				break;
+
 			default:
-				if (!TaskStarted)
-				{
-					ConsoleBot.BotSendMessage(AppTranslator.FullCommandsList[CurrentLanguageInt]);
-				}
-				else
-				{
-					ConsoleBot.BotSendMessage(AppTranslator.ReducedCommandsList[CurrentLanguageInt]);
-				}
+				ConsoleBot.BotSendMessage(AppTranslator.CommandsMessage[CurrentLanguageInt]);
 				break;
-			}
-		}
-		else
-		{
-			ConsoleBot.BotSendMessage(AppTranslator.ExitAdvice[CurrentLanguageInt]);
 		}
 	}
 
+	// ── Packet interception ───────────────────────────────────────────────
+
 	private void Extension_OnDataInterceptEvent(DataInterceptedEventArgs e)
 	{
-		if ((Extension.In.ErrorReport.Match(e) | Extension.In.PurchaseError.Match(e) | Extension.In.PurchaseNotAllowed.Match(e) | Extension.In.NotEnoughBalance.Match(e)) && TaskStarted)
+		if (Extension.In.NotEnoughBalance.Match(e) && State == BotState.Running)
 		{
-			e.IsBlocked = true;
-		}
-		if (Extension.In.CatalogPublished.Match(e) && (TaskStarted & TaskCanBeStopped))
-		{
-			ConsoleBot.BotSendMessage(AppTranslator.CatalogUpdateReceived[CurrentLanguageInt]);
-			TestMode = false;
-			TryToBuyLTD();
+			StopSearchLoop();
+			ConsoleBot.BotSendMessage(AppTranslator.NotEnoughBalance[CurrentLanguageInt]);
 		}
 	}
 
@@ -336,7 +356,7 @@ public partial class MainWindow : Window, IComponentConnector
 		base.Visibility = Visibility.Visible;
 		base.ShowInTaskbar = true;
 		Activate();
-		Interaction.MsgBox(e + ".", MsgBoxStyle.Critical, "Critical error");
+		MessageBox.Show(e + ".", "Critical error", MessageBoxButton.OK, MessageBoxImage.Error);
 		Environment.Exit(0);
 	}
 }
