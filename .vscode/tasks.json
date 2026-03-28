@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Publish Win x86",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "LTDHelper1.csproj",
+        "-p:PublishProfile=Properties/PublishProfiles/LTDHelper-win-x86.pubxml",
+        "-c",
+        "Release"
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Create Zip",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "-c",
+        "cd bin/Release && zip -j ../../LTDHelper-win-x86-v2.zip publish-win-x86/LTDHelper.exe && ls -lh ../../LTDHelper-win-x86-v2.zip"
+      ],
+      "dependsOn": ["Publish Win x86"],
+      "problemMatcher": []
+    }
+  ]
+}

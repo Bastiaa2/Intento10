@@ -32,6 +32,8 @@ public partial class MainWindow : Window, IComponentConnector
 	private int MaxPrice = 0;
 	private int TargetAmount = 0; // 0 = unlimited
 	private int TotalBought = 0;
+	private bool DebugEnabled = true;
+	private int _noOfferScanCount = 0;
 	private CancellationTokenSource _cts;
 
 	public virtual GeodeExtension Extension
@@ -129,6 +131,7 @@ public partial class MainWindow : Window, IComponentConnector
 	{
 		_cts?.Cancel();
 		_cts = null;
+		_noOfferScanCount = 0;
 		State = BotState.Idle;
 	}
 
@@ -169,32 +172,81 @@ public partial class MainWindow : Window, IComponentConnector
 			if (result == null || ct.IsCancellationRequested) return;
 
 			(int bestOfferId, int bestPrice) = ParseBestOffer(result.Packet);
-			if (bestOfferId == -1) return; // no offers at or below max price
+			if (bestOfferId == -1)
+			{
+				_noOfferScanCount++;
+				if (DebugEnabled && _noOfferScanCount % 5 == 0)
+				{
+					ConsoleBot.BotSendMessage(AppTranslator.NoOfferAtPrice[CurrentLanguageInt]);
+				}
+				return;
+			}
+			_noOfferScanCount = 0;
 
 			ConsoleBot.BotSendMessage(string.Format(AppTranslator.OfferFound[CurrentLanguageInt], bestPrice));
-
-			// Packet validated from logs:
-			// {out:BuyMarketplaceOffer}{i:offerId}
-			Extension.SendToServerAsync(Extension.Out.BuyMarketplaceOffer, bestOfferId);
-
-			DataInterceptedEventArgs buyResult = await Extension.WaitForPacketAsync(Extension.In.MarketplaceBuyOfferResult, 3000);
-			if (buyResult != null)
+			(bool bought, int resultCode) = await TryBuyOfferAsync(bestOfferId, bestPrice);
+			if (bought)
 			{
 				TotalBought++;
 				ConsoleBot.BotSendMessage(string.Format(AppTranslator.PurchaseOK[CurrentLanguageInt], bestPrice, TotalBought));
 			}
 			else
 			{
-				ConsoleBot.BotSendMessage(AppTranslator.PurchaseFailed[CurrentLanguageInt]);
+				if (resultCode == -1)
+				{
+					ConsoleBot.BotSendMessage(AppTranslator.PurchaseFailed[CurrentLanguageInt]);
+				}
+				else
+				{
+					ConsoleBot.BotSendMessage(string.Format(AppTranslator.PurchaseRejected[CurrentLanguageInt], resultCode));
+				}
 			}
 		}
 		catch (OperationCanceledException)
 		{
 			throw;
 		}
-		catch (Exception)
+		catch (Exception ex)
 		{
-			// Silently swallow per-iteration errors; loop will retry.
+			if (DebugEnabled)
+			{
+				ConsoleBot.BotSendMessage(string.Format(AppTranslator.DebugError[CurrentLanguageInt], ex.Message));
+			}
+		}
+	}
+
+	private async Task<(bool bought, int resultCode)> TryBuyOfferAsync(int offerId, int price)
+	{
+		// Attempt 1: format seen in your logs.
+		Extension.SendToServerAsync(Extension.Out.BuyMarketplaceOffer, offerId);
+		DataInterceptedEventArgs buyResult = await Extension.WaitForPacketAsync(Extension.In.MarketplaceBuyOfferResult, 2000);
+		if (buyResult != null)
+		{
+			int resultCode = ReadBuyResultCode(buyResult.Packet);
+			return (resultCode == 1, resultCode);
+		}
+
+		// Attempt 2: some builds require (offerId, price).
+		Extension.SendToServerAsync(Extension.Out.BuyMarketplaceOffer, offerId, price);
+		buyResult = await Extension.WaitForPacketAsync(Extension.In.MarketplaceBuyOfferResult, 2000);
+		if (buyResult != null)
+		{
+			int resultCode = ReadBuyResultCode(buyResult.Packet);
+			return (resultCode == 1, resultCode);
+		}
+
+		return (false, -1);
+	}
+
+	private int ReadBuyResultCode(dynamic packet)
+	{
+		try
+		{
+			return packet.ReadInteger();
+		}
+		catch
+		{
+			return -1;
 		}
 	}
 
@@ -251,6 +303,26 @@ public partial class MainWindow : Window, IComponentConnector
 	{
 		string input = e.Trim();
 		string lower = input.ToLower();
+
+		if (lower.StartsWith("/debug"))
+		{
+			string[] parts = lower.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+			if (parts.Length == 2 && parts[1] == "on")
+			{
+				DebugEnabled = true;
+				ConsoleBot.BotSendMessage(AppTranslator.DebugEnabled[CurrentLanguageInt]);
+			}
+			else if (parts.Length == 2 && parts[1] == "off")
+			{
+				DebugEnabled = false;
+				ConsoleBot.BotSendMessage(AppTranslator.DebugDisabled[CurrentLanguageInt]);
+			}
+			else
+			{
+				ConsoleBot.BotSendMessage(AppTranslator.DebugUsage[CurrentLanguageInt]);
+			}
+			return;
+		}
 
 		// Wizard input states
 		if (State == BotState.WaitingForFurniName)

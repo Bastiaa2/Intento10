@@ -13,9 +13,9 @@ public class AppTranslator
 
 	public static string[] CommandsMessage = new string[3]
 	{
-		"Commands: /start, /stop, /status, /exit",
-		"Comandos: /iniciar, /detener, /estado, /salir",
-		"Comandos: /começar, /parar, /estado, /sair"
+		"Commands: /start, /stop, /status, /debug on|off, /exit",
+		"Comandos: /iniciar, /detener, /estado, /debug on|off, /salir",
+		"Comandos: /começar, /parar, /estado, /debug on|off, /sair"
 	};
 
 	public static string[] AskFurniName = new string[3]
@@ -83,6 +83,50 @@ public class AppTranslator
 		"Purchase failed (offer may have been taken). Retrying...",
 		"Compra fallida (la oferta pudo haber sido tomada). Reintentando...",
 		"Compra falhou (a oferta pode ter sido tomada). Tentando novamente..."
+	};
+
+	public static string[] NoOfferAtPrice = new string[3]
+	{
+		"No offers found at or below your max price yet.",
+		"Aun no hay ofertas al precio maximo o menor.",
+		"Ainda nao ha ofertas no preco maximo ou menor."
+	};
+
+	// {0}=code
+	public static string[] PurchaseRejected = new string[3]
+	{
+		"Purchase rejected by server (code: {0}). Retrying...",
+		"Compra rechazada por el servidor (codigo: {0}). Reintentando...",
+		"Compra rejeitada pelo servidor (codigo: {0}). Tentando novamente..."
+	};
+
+	// {0}=message
+	public static string[] DebugError = new string[3]
+	{
+		"Debug: {0}",
+		"Debug: {0}",
+		"Debug: {0}"
+	};
+
+	public static string[] DebugEnabled = new string[3]
+	{
+		"Debug mode enabled.",
+		"Modo debug activado.",
+		"Modo debug ativado."
+	};
+
+	public static string[] DebugDisabled = new string[3]
+	{
+		"Debug mode disabled.",
+		"Modo debug desactivado.",
+		"Modo debug desativado."
+	};
+
+	public static string[] DebugUsage = new string[3]
+	{
+		"Usage: /debug on or /debug off",
+		"Uso: /debug on o /debug off",
+		"Uso: /debug on ou /debug off"
 	};
 
 	public static string[] StoppedMessage = new string[3]
