@@ -1,0 +1,2 @@
+/workspaces/Intento10/bin/Release/publish-win-x86/LTDHelper.pdb
+/workspaces/Intento10/bin/Release/publish-win-x86/LTDHelper.exe

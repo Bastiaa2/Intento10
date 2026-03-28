@@ -5,11 +5,10 @@ cd /workspaces/Intento10
 
 echo "=== Preparando v2 para release ==="
 
-# Crear zip ligero solo con el ejecutable para no exceder limites de GitHub
-if [ -f "bin/Release/publish-win-x86/LTDHelper.exe" ]; then
-    rm -f LTDHelper-win-x86-v2.zip
-    zip -j LTDHelper-win-x86-v2.zip bin/Release/publish-win-x86/LTDHelper.exe >/dev/null
-    echo "✓ Creado LTDHelper-win-x86-v2.zip"
+# Renombrar zip a v2
+if [ -f "LTDHelper-win-x86-full.zip" ]; then
+    mv LTDHelper-win-x86-full.zip LTDHelper-win-x86-v2.zip
+    echo "✓ Renombrado a LTDHelper-win-x86-v2.zip"
 fi
 
 # Renombrar x64 también si existe
@@ -20,7 +19,7 @@ fi
 
 echo ""
 echo "=== Agregando archivos a git ==="
-git add .gitignore LTDHelper1.csproj .vscode/tasks.json deploy-v2.sh version-release.sh LTDHelper-win-x86-v2.zip LTDHelper-win-x64-v2.zip LTDHelper/MainWindow.cs LTDHelper/AppTranslator.cs RELEASES.md 2>/dev/null || git add .gitignore LTDHelper1.csproj .vscode/tasks.json deploy-v2.sh version-release.sh LTDHelper-win-x86-v2.zip LTDHelper/MainWindow.cs LTDHelper/AppTranslator.cs RELEASES.md
+git add LTDHelper-win-x86-v2.zip LTDHelper-win-x64-v2.zip LTDHelper/MainWindow.cs LTDHelper/AppTranslator.cs RELEASES.md 2>/dev/null || git add LTDHelper-win-x86-v2.zip LTDHelper/MainWindow.cs LTDHelper/AppTranslator.cs RELEASES.md
 
 echo "✓ Archivos agregados"
 
@@ -38,10 +37,9 @@ Features:
 - /debug on|off command to toggle diagnostic output
 - Conditional diagnostics based on DebugEnabled flag
 - Multi-language support (EN/ES/PT)
-- Ignore generated build outputs and create lightweight release zip
 - RELEASES.md documentation
 
-Executable: LTDHelper-win-x86-v2.zip
+Executable: LTDHelper-win-x86-v2.zip (118MB)
 Ready for testing with G-Earth extension"
 
 echo "✓ Commit creado"
